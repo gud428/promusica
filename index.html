@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>ProMusica - 변호사시험 응원</title>
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+
+  #stage {
+    position: absolute; left: 50%; top: 50%;
+    width: 1672px; height: 941px;
+    transform-origin: center center;
+    overflow: hidden;
+  }
+  #bg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  /* ===== 조명 ===== */
+  .beam {
+    position: absolute; width: var(--w); height: 1150px;
+    transform-origin: 50% 0;
+    background: linear-gradient(to bottom, var(--c) 0%, transparent 80%);
+    clip-path: polygon(46% 0, 54% 0, 100% 100%, 0 100%);
+    filter: blur(18px);
+    mix-blend-mode: screen;
+    opacity: var(--o);
+    animation: sway var(--d) ease-in-out infinite;
+    animation-delay: var(--delay);
+    pointer-events: none;
+  }
+  @keyframes sway {
+    0%,100% { transform: translateX(-50%) rotate(calc(var(--a) - var(--swing))); }
+    50%     { transform: translateX(-50%) rotate(calc(var(--a) + var(--swing))); }
+  }
+  .glow {
+    position: absolute; width: 130px; height: 130px; border-radius: 50%;
+    background: radial-gradient(circle, var(--c) 0%, transparent 65%);
+    mix-blend-mode: screen;
+    animation: pulse var(--p) ease-in-out infinite;
+    animation-delay: var(--delay);
+    pointer-events: none;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: .35; transform: translate(-50%,-50%) scale(.9); }
+    50%     { opacity: .95; transform: translate(-50%,-50%) scale(1.15); }
+  }
+
+  /* ===== 관객 레이어 ===== */
+  #crowd, #crowdDebug {
+    position: absolute; left: 0;
+    width: 1672px;
+    pointer-events: none;
+    -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
+    -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  }
+  #crowd { filter: url(#crowdKey); }          /* 밝은 배경 제거, 실루엣만 남김 */
+  #crowdDebug { background: rgba(255,0,0,.4); display: none; }
+  body.debug-crowd #crowdDebug { display: block; }
+
+  .marker {
+    position: absolute; width: 14px; height: 14px; border: 2px solid red; border-radius: 50%;
+    transform: translate(-50%,-50%); display: none; z-index: 10;
+  }
+  body.debug .marker { display: block; }
+</style>
+</head>
+<body>
+
+<!-- 어두운 부분만 남기는 필터 -->
+<svg width="0" height="0" style="position:absolute">
+  <filter id="crowdKey" color-interpolation-filters="sRGB">
+    <feColorMatrix type="matrix"
+      values="1 0 0 0 0
+              0 1 0 0 0
+              0 0 1 0 0
+              -2.25 -4.5 -0.75 1.6 0"/>
+  </filter>
+</svg>
+
+<div id="stage">
+  <img id="bg" src="bg.png" alt="">
+</div>
+
+<script>
+/* ================= 설정 ================= */
+const CONFIG = {
+  // 조명
+  swing: 6, opacity: 0.35, speed: 1, width: 460,
+  // 관객
+  bpm: 120,          // 바운스 템포 (곡 BPM에 맞추면 좋아요)
+  bounce: 6,         // 가운데 관객이 뛰는 높이 (px)
+  edgeBounce: 11,    // 양쪽 앞쪽 큰 관객이 뛰는 높이 (px)
+  sync: 0.25,        // 박자 엇갈림 정도 (0 = 완전 동시, 1 = 제각각)
+  halfTimeRatio: 0.2,// 반 박자로 느긋하게 타는 사람 비율
+  step: 3            // 세로 줄 폭 (작을수록 부드럽고, 클수록 가벼움)
+};
+
+/* 관객이 있는 영역 (원본 이미지 좌표). C 키로 확인 가능 */
+const CROWD_TOP = 540;
+const CROWD_AREA = [
+  [-50, 570], [250, 560], [330, 690], [390, 790], [560, 805],
+  [720, 835], [1000, 835], [1100, 815], [1300, 805], [1480, 800],
+  [1560, 690], [1600, 630], [1722, 630], [1722, 991], [-50, 991]
+];
+
+/* ================= 조명 ================= */
+const lights = [
+  { x: 22,   y: 50, a: -26, c: 'rgba(140,170,255,.9)',  d: 9  },
+  { x: 140,  y: 68, a: -18, c: 'rgba(170,190,255,.9)',  d: 11 },
+  { x: 425,  y: 85, a: -8,  c: 'rgba(130,160,255,.85)', d: 13 },
+  { x: 1245, y: 85, a: 8,   c: 'rgba(170,140,255,.85)', d: 12 },
+  { x: 1540, y: 68, a: 18,  c: 'rgba(200,160,255,.9)',  d: 10 },
+  { x: 1650, y: 50, a: 26,  c: 'rgba(230,170,255,.9)',  d: 8  },
+];
+const stage = document.getElementById('stage');
+
+lights.forEach((l, i) => {
+  const delay = `${-i * 1.7}s`;
+  const beam = document.createElement('div');
+  beam.className = 'beam';
+  beam.style.cssText = `left:${l.x}px; top:${l.y}px; --c:${l.c}; --a:${l.a}deg;
+    --swing:${CONFIG.swing}deg; --d:${l.d / CONFIG.speed}s; --o:${CONFIG.opacity};
+    --w:${CONFIG.width}px; --delay:${delay};`;
+  stage.appendChild(beam);
+
+  const glow = document.createElement('div');
+  glow.className = 'glow';
+  glow.style.cssText = `left:${l.x}px; top:${l.y}px; --c:${l.c};
+    --p:${(2.5 + i * 0.4) / CONFIG.speed}s; --delay:${delay};`;
+  stage.appendChild(glow);
+
+  const m = document.createElement('div');
+  m.className = 'marker';
+  m.style.cssText = `left:${l.x}px; top:${l.y}px;`;
+  stage.appendChild(m);
+});
+
+/* ================= 관객 레이어 ================= */
+const H = 941 - CROWD_TOP;
+const cv = document.createElement('canvas');
+cv.id = 'crowd'; cv.width = 1672; cv.height = H;
+cv.style.top = CROWD_TOP + 'px'; cv.style.height = H + 'px';
+stage.appendChild(cv);   // 조명보다 위 → 관객이 빛을 가림
+
+const dbg = document.createElement('div');
+dbg.id = 'crowdDebug';
+dbg.style.top = CROWD_TOP + 'px'; dbg.style.height = H + 'px';
+stage.appendChild(dbg);
+
+// 관객 영역 마스크 (가장자리를 부드럽게 흐림)
+const pts = CROWD_AREA.map(p => p.join(',')).join(' ');
+const maskSvg = `<svg xmlns='http://www.w3.org/2000/svg' width='1672' height='${H}' viewBox='0 ${CROWD_TOP} 1672 ${H}'>
+  <filter id='b' x='-10%' y='-10%' width='120%' height='120%'><feGaussianBlur stdDeviation='12'/></filter>
+  <polygon points='${pts}' fill='white' filter='url(#b)'/></svg>`;
+const maskUrl = `url("data:image/svg+xml,${encodeURIComponent(maskSvg)}")`;
+[cv, dbg].forEach(e => { e.style.webkitMaskImage = maskUrl; e.style.maskImage = maskUrl; });
+
+// 가상의 관객 배치 (항상 같은 결과가 나오도록 고정 난수)
+let seed = 42;
+const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+const people = [];
+for (let x = -40; x < 1712; x += 50 + rnd() * 35) {
+  const edge = x < 380 || x > 1500;
+  people.push({
+    cx: x,
+    amp: (edge ? CONFIG.edgeBounce : CONFIG.bounce) * (0.7 + rnd() * 0.5),
+    phase: (rnd() - 0.5) * CONFIG.sync,
+    tempo: rnd() < CONFIG.halfTimeRatio ? 0.5 : 1,
+    sigma: edge ? 45 : 28
+  });
+}
+
+// 세로 줄마다 각 관객의 영향도를 미리 계산
+const cols = [];
+for (let x = 0; x < 1672; x += CONFIG.step) {
+  const w = people.map(p => Math.exp(-((x - p.cx) ** 2) / (2 * p.sigma ** 2)));
+  const sum = w.reduce((a, b) => a + b, 0) || 1;
+  cols.push({ x, w: w.map(v => v / sum) });
+}
+
+const img = document.getElementById('bg');
+const ctx = cv.getContext('2d');
+
+function drawCrowd(now) {
+  const beat = now / 1000 * CONFIG.bpm / 60;
+  const h = people.map(p =>
+    p.amp * Math.abs(Math.sin(Math.PI * (beat * p.tempo + p.phase))));
+
+  const kx = img.naturalWidth / 1672, ky = img.naturalHeight / 941;
+  ctx.clearRect(0, 0, 1672, H);
+  for (const c of cols) {
+    let off = 0;
+    for (let i = 0; i < h.length; i++) off += c.w[i] * h[i];
+    ctx.drawImage(img,
+      c.x * kx, CROWD_TOP * ky, CONFIG.step * kx, H * ky,  // 원본에서 자를 부분
+      c.x, -off, CONFIG.step, H);                         // 위로 off만큼 올려 그림
+  }
+  requestAnimationFrame(drawCrowd);
+}
+img.complete ? requestAnimationFrame(drawCrowd)
+             : img.addEventListener('load', () => requestAnimationFrame(drawCrowd));
+
+/* ================= 화면 맞춤 & 단축키 ================= */
+function fit() {
+  const s = Math.max(innerWidth / 1672, innerHeight / 941);
+  stage.style.transform = `translate(-50%, -50%) scale(${s})`;
+}
+addEventListener('resize', fit); fit();
+
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k === 'd') document.body.classList.toggle('debug');        // 조명 위치
+  if (k === 'c') document.body.classList.toggle('debug-crowd');  // 관객 영역
+});
+</script>
+<!-- ================= 선배님 명단 ================= -->
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Nanum+Pen+Script&family=Kaushan+Script&display=swap');
+
+  #credit {
+    position: absolute; transform: translate(-50%, -50%);
+    text-align: center; white-space: nowrap;
+    pointer-events: none; z-index: 5; color: #f3eefb;
+  }
+  #credit .card {
+    display: inline-flex; flex-direction: column; align-items: center;
+    opacity: 0; transform: translateY(8px); filter: blur(4px);
+    transition: opacity var(--fade) ease, transform var(--fade) ease, filter var(--fade) ease;
+  }
+  #credit .card.show { opacity: 1; transform: none; filter: blur(0); }
+  #credit .card.hide { opacity: 0; transform: translateY(-8px); filter: blur(4px); }
+
+  #credit .row   { display: flex; align-items: baseline; gap: 14px; }
+  #credit .name  { font-family: 'Nanum Pen Script'; font-size: 44px; letter-spacing: 3px;
+                   text-shadow: 0 0 14px rgba(200,185,255,.6); }
+  #credit .inst  { font-family: 'Kaushan Script'; font-size: 22px; opacity: .8; }
+  #credit .teams { font-family: 'Nanum Pen Script'; font-size: 25px; letter-spacing: 1px;
+                   margin-top: 4px; opacity: 0; transition: opacity 1s ease .6s;
+                   color: #d9ccff; text-shadow: 0 0 10px rgba(170,140,255,.5); }
+  #credit .card.show .teams { opacity: .85; }
+  #credit .teams .sep { opacity: .5; margin: 0 9px; font-size: 18px; }
+  #credit .title { font-family: 'Nanum Pen Script'; font-size: 36px; letter-spacing: 2px;
+                   text-shadow: 0 0 14px rgba(200,185,255,.6); }
+
+  #credit .line {
+    width: 110%; height: 2px; margin-top: 2px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.8), transparent);
+    transform: scaleX(0); transition: transform 1.2s ease .3s;
+  }
+  #credit .card.show .line { transform: scaleX(1); }
+</style>
+
+<script>
+/* ===== 명단 데이터 (팀은 활동한 순서대로) ===== */
+const SENIORS = [
+  { name: '박승규', inst: '드럼',        teams: ['우락부락', '로여든', 'ME FEEL적 고의', '장전꾸러기'] },
+  { name: '박진혁', inst: '키보드',      teams: ['우락부락', '로여든', 'RRB', '불의타'] },
+  { name: '강현주', inst: '보컬',        teams: ['하모예', '무과실책임', 'ME FEEL적 고의'] },
+  { name: '우다인', inst: '키보드',      teams: ['하모예', '무과실책임', '장전꾸러기'] },
+  { name: '허승호', inst: '보컬',        teams: ['우락부락', '로여든', '장전꾸러기'] },
+  { name: '강민승', inst: '기타',        teams: ['하모예', '무과실책임', '불의타', '강아지'] },
+  { name: '최지강', inst: '보컬, 드럼',  teams: ['무과실책임', '불의타'] },
+  { name: '한승연', inst: '보컬',        teams: ['로여든'] },
+  { name: '이태헌', inst: '베이스, 드럼', teams: ['우락부락', '무과실책임'] },
+  { name: '김채림', inst: '드럼',        teams: ['로여든'] },
+  { name: '박수현', inst: '보컬',        teams: ['로여든'] },
+  { name: '김지연', inst: '드럼',        teams: ['로여든'] },
+  { name: '김세현', inst: '베이스',      teams: ['무과실책임'] },
+  { name: '하종혁', inst: '베이스',      teams: ['무과실책임', '장전꾸러기'] },
+  { name: '유제영', inst: '베이스',      teams: ['로여든', 'ME FEEL적 고의'] },
+  { name: '김민지', inst: '보컬',        teams: ['온천천의 개들'] },
+  { name: '권선아', inst: '보컬, 키보드', teams: ['온천천의 개들', '우락부락'] },
+];
+
+/* ===== 설정 ===== */
+const CREDIT = {
+  x: 832, y: 655,     // 표시 위치 (원본 이미지 좌표)
+  hold: 3300,         // 한 명이 떠 있는 시간 (ms) - 팀명이 추가돼서 조금 늘림
+  fade: 900,
+  gap: 300,
+  english: true,      // 악기 영어 표시
+  intro: 'Thanks to our seniors ♪',
+  outro: '선배님들의 합격을 응원합니다 ♪'
+};
+const INST_EN = { '드럼': 'Drums', '키보드': 'Keys', '보컬': 'Vocal', '기타': 'Guitar', '베이스': 'Bass' };
+
+const instText = s => s.split(/\s*,\s*/)
+  .map(v => CREDIT.english ? (INST_EN[v] || v) : v)
+  .join(CREDIT.english ? ' & ' : ' · ');
+
+/* ===== 표시 순서 ===== */
+const queue = [];
+if (CREDIT.intro) queue.push(`<span class="title">${CREDIT.intro}</span><div class="line"></div>`);
+SENIORS.forEach(s => queue.push(
+  `<div class="row"><span class="name">${s.name}</span><span class="inst">${instText(s.inst)}</span></div>
+   <div class="line"></div>
+   <div class="teams">${s.teams.join('<span class="sep">♪</span>')}</div>`));
+if (CREDIT.outro) queue.push(`<span class="title">${CREDIT.outro}</span><div class="line"></div>`);
+
+/* ===== 화면에 붙이기 ===== */
+const creditBox = document.createElement('div');
+creditBox.id = 'credit';
+creditBox.style.cssText = `left:${CREDIT.x}px; top:${CREDIT.y}px; --fade:${CREDIT.fade}ms;`;
+const card = document.createElement('div');
+card.className = 'card';
+creditBox.appendChild(card);
+document.getElementById('stage').appendChild(creditBox);
+
+/* ===== 반복 재생 ===== */
+let idx = 0;
+function nextCredit() {
+  card.style.transition = 'none';
+  card.className = 'card';
+  card.innerHTML = queue[idx++ % queue.length];
+  void card.offsetWidth;
+  card.style.transition = '';
+  card.classList.add('show');
+
+  setTimeout(() => {
+    card.classList.replace('show', 'hide');
+    setTimeout(nextCredit, CREDIT.fade + CREDIT.gap);
+  }, CREDIT.fade + CREDIT.hold);
+}
+document.fonts.ready.then(nextCredit);
+</script>
+</body>
+</html>
